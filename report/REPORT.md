@@ -3,6 +3,13 @@
 Seattle area, May 2014 – May 2015. Dataset: Kaggle `harlfoxem/housesalesprediction`
 (~21,613 rows x 21 cols; local runs use a same-schema fallback when no Kaggle auth).
 
+**Investor lens (fix-and-flip):** which grades and neighborhoods pay a renovation
+premium, and how wide is the appraisal risk on any single listing? All fallback-run
+numbers below are pipeline demos — rerun on Kaggle data before publishing.
+
+**KPI scorecard (fallback run):** median price ~$906k | best model Lasso RMSE ~$89k,
+R2 0.89 | quantile 80% band coverage 0.79 | luxury/waterfront error ~50% higher.
+
 ## Why this project matters
 A house is the largest purchase most households make, and small pricing errors cost
 tens of thousands of dollars. This project shows whether listing features can price
@@ -60,17 +67,41 @@ evaluation, decisions under uncertainty.
 - No causal claim (renovation ≠ automatic uplift) and no interest-rate/inventory adjustment.
 - Fallback numbers are pipeline demos; the Colab rerun with Kaggle auth is the publishable run.
 
+## Phase 3 findings (fallback run)
+- **Log-target:** LR on log(price) scores RMSE $111,964 vs $89,160 raw — worse here
+  *because the synthetic fallback is linear in raw space by construction*. On skewed
+  real prices the log stabilizes variance (see `price_dist_log.png`); both rows stay
+  in the table so the comparison is honest either way.
+- **Lasso keeps 8 of 21 features** (sqft_living, grade, bedrooms, sqft_above,
+  age_at_sale, living_vs_neighbors, sale_month, zip_median_oof) at RMSE $89,077 —
+  the selection story: lot size, condition, and view drop out.
+- **VIF gate:** all fallback VIFs ≈ 1 (independent synthetic features); only the
+  degenerate `has_basement` (perfect collinearity) is auto-dropped from linear sets.
+- **Boosting:** HistGradientBoosting RMSE $92,588 — no win on linear fallback data;
+  real-data rerun decides. Learning curve (`learning_curve.png`) shows the gap path.
+- **Permutation importance** (`perm_importance.png`) confirms sqft_living/grade
+  without impurity bias toward high-cardinality features.
+- **Quantile bands cover 0.79 of test homes** (nominal 0.80) — quote the band, not
+  the point (`quantile_band.png`).
+- **Location honesty:** zip OOF medians carry ~zero signal on random fallback zips;
+  lat/long and zip lifts are real-data-gated. `price_vs_zip_median` is analysis-only
+  (contains the target) and never a feature.
+
 ## Screenshots (report/figures/)
 1. `price_dist.png` — right-skewed prices, luxury tail.
-2. `price_vs_sqft.png` — living area is the dominant driver.
-3. `price_by_grade.png` — grade steps carry large median jumps.
-4. `price_trend.png` — monthly median path.
-5. `sales_volume.png` — seasonal transaction rhythm.
-6. `geo.png` — value concentration by location.
-7. `pred_vs_actual.png` — model fit with luxury-tail spread.
-8. `feature_importance.png` — sqft_living and grade on top.
-9. `error_by_band.png` — luxury predicts worse.
-10. `scenario.png` — history + holdout + 6-mo scenario + 7–12-mo stretch with bands.
+2. `price_dist_log.png` — KDE raw vs log10: the variance-stabilizing case.
+3. `price_vs_sqft.png` — living area is the dominant driver.
+4. `price_by_grade.png` — grade steps carry large median jumps.
+5. `price_trend.png` — monthly median path.
+6. `sales_volume.png` — seasonal transaction rhythm.
+7. `geo.png` — value concentration by location.
+8. `pred_vs_actual.png` — model fit with luxury-tail spread.
+9. `feature_importance.png` — sqft_living and grade on top.
+10. `perm_importance.png` — permutation-based, with uncertainty bars.
+11. `error_by_band.png` — luxury predicts worse.
+12. `learning_curve.png` — HistGB train vs validation error.
+13. `quantile_band.png` — per-property 10th–90th appraisal bands.
+14. `scenario.png` — history + holdout + 6-mo scenario + 7–12-mo stretch with bands.
 
 ## Reproduce
 - Colab: open `house_price_analysis.ipynb` → Run All (works without auth via fallback; add Kaggle token for real data).

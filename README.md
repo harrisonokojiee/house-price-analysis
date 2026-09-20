@@ -35,17 +35,17 @@ Figures land in `figures/`.
 - `requirements.txt`, `data/` (ignored raw CSVs go here).
 
 ## Key findings (synthetic fallback run; real data shows same pattern)
-- Living area (corr 0.92) and grade dominate price; waterfront/view add premiums.
-- Shuffled split: LinearRegression RMSE $89,118 R2 0.889; RandomForest RMSE $94,453 R2 0.875.
+- Investor lens: mid-grade 3–4 bedroom flips price reliably from the model; luxury/waterfront need manual appraisal buffers.
+- Model table: Lasso RMSE $89,077 (8/21 features kept) ≈ LR raw $89,160; HistGB $92,588; RF $94,454. Log-target trails on linear fallback data by construction — the honest comparison stays in the table.
 - Forward time splits hold up (train past → test future), so the model generalizes to future listings.
-- Error is uneven: luxury Q4 and waterfront predict ~50% worse — flag for manual appraisal.
+- Quantile 80% bands cover 0.79 of test homes — quote the band, not the point.
 - Market scenario (damped Holt-Winters, backtested vs naive on last 3 months): 6-month projection with ~80% bands; months 7–12 are stretch. No multi-year forecast from 12 points.
-- Limitation: 2014–2015 Seattle only; no interest-rate or inventory features; do not use for 2026 pricing.
+- Limitation: 2014–2015 Seattle only; location lifts need the real-data rerun; no interest-rate features; do not use for 2026 pricing.
 
 ## Report and screenshots
-- Full write-up: `report/REPORT.md` (importance, questions, findings, decisions, limits).
-- 10 hero screenshots in `report/figures/` (1500x900 PNGs) + `scenario_projection.csv` (12-month scenario with bands).
-- All 11 pipeline figures in `figures/`.
+- Full write-up: `report/REPORT.md` (investor lens, KPI scorecard, findings, decisions, limits).
+- 14 hero screenshots in `report/figures/` + `scenario_projection.csv` (12-month scenario with bands).
+- All 15 pipeline figures in `figures/`.
 
 ## Portfolio blurb (copy-paste for your website)
 > King County House Prices — I analyzed 21,600 Seattle-area home sales (2014–2015) to find what drives price and how far the data can project. Living area and grade dominate; a LinearRegression baseline (R2 0.89) holds up under forward time splits, while luxury and waterfront listings need manual appraisal buffers. A damped Holt-Winters scenario projects the monthly median 6 months out with uncertainty bands — honestly labeled as scenario, not forecast, since 12 months cannot support multi-year claims. Built with pandas, scikit-learn, statsmodels, and matplotlib; reproducible in one Colab Run All via Kaggle. [notebook] [report] [3 hero charts]

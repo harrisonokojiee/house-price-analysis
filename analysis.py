@@ -106,9 +106,11 @@ def clean(df):
     df["bathrooms"] = df["bathrooms"].fillna(df["bathrooms"].median())
     df = df[(df["bedrooms"] > 0) & (df["bedrooms"] <= 10)]
     df = df[(df["price"] >= 50000) & (df["price"] <= 8_000_000)]
-    df = df.drop_duplicates(subset=["id"])
+    df["repeat_sale"] = df.duplicated("id", keep=False).astype(int)
+    n_repeat = int(df["repeat_sale"].sum())
+    df = df.drop_duplicates(subset=["id", "date"])
     after = len(df)
-    print(f"Cleaning: {before} -> {after} rows")
+    print(f"Cleaning: {before} -> {after} rows (repeat-sale rows flagged: {n_repeat})")
     return df
 
 
@@ -119,7 +121,40 @@ def engineer(df):
     df["age_at_sale"] = df["sale_year"] - df["yr_built"]
     df["renovated"] = (df["yr_renovated"] > 0).astype(int)
     df["price_per_sqft"] = df["price"] / df["sqft_living"].clip(lower=1)
+    df["lot_utilization"] = df["sqft_living"] / df["sqft_lot"].clip(lower=1)
+    df["basement_ratio"] = df["sqft_basement"] / df["sqft_living"].clip(lower=1)
+    df["has_basement"] = (df["sqft_basement"] > 0).astype(int)
+    df["living_vs_neighbors"] = df["sqft_living"] / df["sqft_living15"].clip(lower=1)
+    df["is_spring_summer"] = df["sale_month"].isin([4, 5, 6, 7]).astype(int)
     return df
+
+
+def add_zip_encoding(df, n_splits=5, seed=42):
+    """Out-of-fold zipcode means: no row's own price leaks into its feature.
+    price_vs_zip_median is analysis-only (contains the target) — never a feature."""
+    from sklearn.model_selection import KFold
+    df = df.copy()
+    oof = pd.Series(np.nan, index=df.index)
+    kf = KFold(n_splits=n_splits, shuffle=True, random_state=seed)
+    for tr, te in kf.split(df):
+        med = df.iloc[tr].groupby("zipcode")["price"].median()
+        oof.iloc[te] = df.iloc[te]["zipcode"].map(med)
+    df["zip_median_oof"] = oof.fillna(df["price"].median())
+    df["zip_sales_volume"] = df["zipcode"].map(df["zipcode"].value_counts())
+    df["price_vs_zip_median"] = df["price"] / df["zip_median_oof"].clip(lower=1)
+    print(f"Zip encoding: {df['zipcode'].nunique()} zips, "
+          f"corr(zip_median_oof, price)={df['zip_median_oof'].corr(df['price']):.3f}")
+    return df
+
+
+def vif_table(df, features):
+    """Diagnostic: flag multicollinearity before trusting linear coefficients."""
+    from statsmodels.stats.outliers_influence import variance_inflation_factor
+    X = df[features].fillna(df[features].median()).values
+    rows = [(f, float(variance_inflation_factor(X, i))) for i, f in enumerate(features)]
+    v = pd.DataFrame(rows, columns=["feature", "VIF"]).sort_values("VIF", ascending=False)
+    print("VIF table (rule of thumb: VIF > 5 warrants attention):\n" + v.to_string(index=False))
+    return v
 
 
 def monthly_series(df):
@@ -157,10 +192,31 @@ def plot_all(df):
                 c=df["price"].clip(upper=df["price"].quantile(0.95)))
     _shot("geo.png", "Sales location (color = price)", "Longitude", "Latitude")
 
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+    df["price"].plot(kind="kde", ax=axes[0])
+    axes[0].axvline(df["price"].median(), color="red", linestyle="--", label="Median")
+    axes[0].set_title("Price distribution (right-skewed)")
+    axes[0].set_xlabel("Price (USD)")
+    axes[0].legend()
+    np.log10(df["price"]).plot(kind="kde", ax=axes[1])
+    axes[1].axvline(np.log10(df["price"]).median(), color="red", linestyle="--",
+                    label="Median")
+    axes[1].set_title("log10(price): variance-stabilized target")
+    axes[1].set_xlabel("log10(price)")
+    axes[1].legend()
+    plt.figtext(0.01, 0.01, SOURCE_TAG, fontsize=8, color="gray")
+    plt.tight_layout(rect=[0, 0.03, 1, 1])
+    plt.savefig(os.path.join(FIGDIR, "price_dist_log.png"), dpi=150)
+    plt.close()
+
 
 FEATURES = ["bedrooms", "bathrooms", "sqft_living", "sqft_lot", "floors",
             "waterfront", "view", "condition", "grade", "sqft_above",
-            "sqft_basement", "age_at_sale", "renovated", "sale_month"]
+            "sqft_basement", "age_at_sale", "renovated", "sale_month",
+            "lot_utilization", "basement_ratio", "has_basement",
+            "living_vs_neighbors", "is_spring_summer", "zip_median_oof",
+            "zip_sales_volume", "lat", "long", "repeat_sale"]
+# NOTE: price_vs_zip_median is deliberately excluded — it contains the target.
 
 
 def model(df):
@@ -195,6 +251,106 @@ def model(df):
     _shot("feature_importance.png", "Top price drivers (RandomForest)",
           "Importance", "Feature")
     return out, rf
+
+
+def model_phase3(df):
+    """Log-target + Lasso + boosting table, all RMSE back-transformed to dollars."""
+    from sklearn.compose import TransformedTargetRegressor
+    from sklearn.linear_model import LassoCV
+    from sklearn.ensemble import HistGradientBoostingRegressor
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.model_selection import learning_curve
+    X = df[FEATURES].fillna(df[FEATURES].median())
+    y = df["price"]
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42)
+    # VIF gate for the linear story
+    lin_candidates = [f for f in FEATURES if f not in ("lat", "long")]
+    v = vif_table(df, lin_candidates)
+    keep = {"sqft_living", "grade"}
+    dropped = [f for f in lin_candidates
+               if float(v.set_index("feature").loc[f, "VIF"]) > 10 and f not in keep]
+    FEATURES_LIN = [f for f in lin_candidates if f not in dropped]
+    print(f"VIF-clean linear set ({len(FEATURES_LIN)} feats), dropped: {dropped or 'none'}")
+    models = [
+        ("LR raw", LinearRegression(), FEATURES_LIN, False),
+        ("RF raw", RandomForestRegressor(n_estimators=100, random_state=42, n_jobs=-1),
+         FEATURES, False),
+        ("LR log-target", TransformedTargetRegressor(
+            regressor=make_pipeline(StandardScaler(), LinearRegression()),
+            func=np.log1p, inverse_func=np.expm1), FEATURES_LIN, False),
+        ("LassoCV", make_pipeline(StandardScaler(), LassoCV(cv=5, max_iter=5000)),
+         FEATURES_LIN, True),
+        ("HistGB", HistGradientBoostingRegressor(random_state=42), FEATURES, False),
+    ]
+    rows = []
+    fitted = {}
+    for name, m, feats, is_lasso in models:
+        m.fit(Xtr[feats], ytr)
+        p = m.predict(Xte[feats])
+        rows.append({"model": name,
+                     "rmse": float(np.sqrt(mean_squared_error(yte, p))),
+                     "r2": float(r2_score(yte, p))})
+        fitted[name] = (m, feats)
+        if is_lasso:
+            coefs = pd.Series(m.named_steps["lassocv"].coef_, index=feats)
+            kept = coefs[coefs.abs() > 0].sort_values(key=abs, ascending=False)
+            print(f"Lasso kept {len(kept)}/{len(feats)} features:\n" + kept.to_string())
+    tab = pd.DataFrame(rows).sort_values("rmse")
+    print("Phase-3 model table (all RMSE in dollars, log-target back-transformed):\n"
+          + tab.to_string(index=False))
+    # Learning curve for the headline model
+    hgb = HistGradientBoostingRegressor(random_state=42)
+    ts, tr_s, va_s = learning_curve(hgb, X, y, train_sizes=np.linspace(0.1, 1.0, 5),
+                                    cv=3, scoring="neg_root_mean_squared_error", n_jobs=-1)
+    plt.figure()
+    plt.plot(ts, -tr_s.mean(axis=1), marker="o", label="Train RMSE")
+    plt.plot(ts, -va_s.mean(axis=1), marker="o", label="Validation RMSE (3-fold)")
+    plt.legend()
+    _shot("learning_curve.png", "HistGradientBoosting learning curve",
+          "Training rows", "RMSE (USD)")
+    return tab, fitted
+
+
+def interpret_and_quantify(df, fitted):
+    """Permutation importance (honest) + per-property quantile bands (verifiable)."""
+    from sklearn.inspection import permutation_importance
+    from sklearn.ensemble import GradientBoostingRegressor
+    X = df[FEATURES].fillna(df[FEATURES].median())
+    y = df["price"]
+    Xtr, Xte, ytr, yte = train_test_split(X, y, test_size=0.2, random_state=42)
+    fig, axes = plt.subplots(1, 2, figsize=(12, 6))
+    for ax, name in zip(axes, ["RF raw", "HistGB"]):
+        m, feats = fitted[name]
+        r = permutation_importance(m, Xte[feats], yte, n_repeats=10,
+                                   random_state=42, n_jobs=-1)
+        order = np.argsort(r.importances_mean)[-8:]
+        ax.barh([feats[i] for i in order], r.importances_mean[order],
+                xerr=r.importances_std[order])
+        ax.set_title(f"{name}: permutation importance (test set)")
+    plt.figtext(0.01, 0.01, SOURCE_TAG, fontsize=8, color="gray")
+    plt.tight_layout(rect=[0, 0.03, 1, 1])
+    plt.savefig(os.path.join(FIGDIR, "perm_importance.png"), dpi=150)
+    plt.close()
+    print("Permutation importance replaces impurity bias toward high-cardinality features.")
+    # Quantile bands
+    qs = {}
+    for a in (0.1, 0.5, 0.9):
+        q = GradientBoostingRegressor(loss="quantile", alpha=a, random_state=42)
+        q.fit(Xtr, ytr)
+        qs[a] = q.predict(Xte)
+    coverage = float(np.mean((yte.values >= qs[0.1]) & (yte.values <= qs[0.9])))
+    print(f"Quantile 80% interval coverage on test set: {coverage:.2f} (nominal 0.80)")
+    s = pd.DataFrame({"med": qs[0.5], "lo": qs[0.1], "hi": qs[0.9],
+                      "actual": yte.values}).sort_values("med").iloc[::max(len(yte) // 300, 1)]
+    plt.figure()
+    plt.fill_between(range(len(s)), s["lo"], s["hi"], alpha=0.3, label="10th-90th pct band")
+    plt.plot(s["med"].values, label="Median prediction")
+    plt.scatter(range(len(s)), s["actual"].values, s=6, alpha=0.5, label="Actual")
+    plt.legend(fontsize=9)
+    _shot("quantile_band.png", "Per-property appraisal bands (quantile regression)",
+          "Test homes (sorted by predicted price)", "Price (USD)")
+    return {"coverage_80": coverage}
 
 
 def time_aware_eval(df):
@@ -336,15 +492,19 @@ def main():
     assert all(c in df.columns for c in ["price", "sqft_living", "grade", "date"]), "schema mismatch"
     df = clean(df)
     df = engineer(df)
+    df = add_zip_encoding(df)
     print(df[["price", "sqft_living", "grade", "price_per_sqft"]].describe().to_string())
     print("Corr with price:\n" + df[FEATURES + ["price"]].corr(numeric_only=True)["price"].sort_values(ascending=False).to_string())
     plot_all(df)
     metrics, _ = model(df)
+    tab3, fitted3 = model_phase3(df)
+    quant = interpret_and_quantify(df, fitted3)
     fwd = time_aware_eval(df)
     scen = backtest_and_scenario(df)
     fred = fred_overlay()
     print(f"source={source} rows={len(df)} figures={sorted(os.listdir(FIGDIR))}")
-    return {"metrics": metrics, "forward": fwd.to_dict("records"),
+    return {"metrics": metrics, "phase3": tab3.to_dict("records"),
+            "quantile": quant, "forward": fwd.to_dict("records"),
             "scenario": scen, "fred": fred}
 
 
