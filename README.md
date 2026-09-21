@@ -44,14 +44,18 @@ Figures land in `figures/`.
 
 ## Report and screenshots
 - Full write-up: `report/REPORT.md` (investor lens, KPI scorecard, findings, decisions, limits).
-- 14 hero screenshots in `report/figures/` + `scenario_projection.csv` (12-month scenario with bands).
-- All 15 pipeline figures in `figures/`.
+- 16 hero screenshots in `report/figures/` + standalone `figures/price_map.html` (interactive hover map) + `scenario_projection.csv` (12-month scenario with bands).
+- All 18 pipeline figures in `figures/`, plus FRED context from `data/external/seattle_hpi.csv` (public, committed).
 
-## Portfolio blurb (copy-paste for your website)
+<!-- Portfolio blurb (hidden from render; copy-paste source for your website)
 > King County House Prices — I analyzed 21,600 Seattle-area home sales (2014–2015) to find what drives price and how far the data can project. Living area and grade dominate; a LinearRegression baseline (R2 0.89) holds up under forward time splits, while luxury and waterfront listings need manual appraisal buffers. A damped Holt-Winters scenario projects the monthly median 6 months out with uncertainty bands — honestly labeled as scenario, not forecast, since 12 months cannot support multi-year claims. Built with pandas, scikit-learn, statsmodels, and matplotlib; reproducible in one Colab Run All via Kaggle. [notebook] [report] [3 hero charts]
+-->
 
 ## Skills shown
 pandas cleaning, EDA, feature engineering, matplotlib visualization, shuffled + time-forward evaluation (RMSE/R2), Holt-Winters scenarios with backtest, Kaggle ingest, Colab reproducibility, written reporting.
 
 ## License
 MIT — see [LICENSE](LICENSE).
+
+## Sister project
+[Netflix Movies & Shows Explorer](https://github.com/harrisonokojiee/netflix-titles) — content-strategy EDA showing breadth beside this project's depth.

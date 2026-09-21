@@ -87,6 +87,17 @@ evaluation, decisions under uncertainty.
   lat/long and zip lifts are real-data-gated. `price_vs_zip_median` is analysis-only
   (contains the target) and never a feature.
 
+## Renovation premium + long-run context (fallback run)
+- Renovated vs original median $/sqft within grade bands: low −0.4%, mid +1.9%,
+  high −1.2% — effectively zero, because synthetic renovations carry no signal.
+  The chart (`renovation_premium.png`) is real-data-gated: rerun decides whether
+  flips pay and in which band.
+- FRED Case-Shiller Seattle index (monthly, 1990–2026) with the study window
+  shaded (`fred_context.png`): the 2014–15 sales sit on a long climb, which is why
+  the report refuses multi-year forecasts from 12 points. Context only, never input.
+- Interactive hover map (`figures/price_map.html`, standalone, no token): price,
+  beds, baths, grade, zip per sale — link it from the portfolio page.
+
 ## Screenshots (report/figures/)
 1. `price_dist.png` — right-skewed prices, luxury tail.
 2. `price_dist_log.png` — KDE raw vs log10: the variance-stabilizing case.
@@ -102,6 +113,9 @@ evaluation, decisions under uncertainty.
 12. `learning_curve.png` — HistGB train vs validation error.
 13. `quantile_band.png` — per-property 10th–90th appraisal bands.
 14. `scenario.png` — history + holdout + 6-mo scenario + 7–12-mo stretch with bands.
+15. `renovation_premium.png` — renovated vs original $/sqft by grade (real-data-gated).
+16. `fred_context.png` — 35-year Seattle index with study window shaded.
+Plus `figures/price_map.html` — standalone interactive hover map (open in a browser).
 
 ## Reproduce
 - Colab: open `house_price_analysis.ipynb` → Run All (works without auth via fallback; add Kaggle token for real data).

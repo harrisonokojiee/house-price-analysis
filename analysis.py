@@ -465,6 +465,47 @@ def backtest_and_scenario(df):
             "monthly_periods": len(y)}
 
 
+def interactive_map(df, max_points=5000):
+    """Standalone HTML hover map (no Mapbox token, no server)."""
+    try:
+        import plotly.express as px
+    except ImportError:
+        print("Interactive map skipped (plotly not installed).")
+        return False
+    s = df.sample(min(len(df), max_points), random_state=42)
+    fig = px.scatter_map(s, lat="lat", lon="long", color="price",
+                         hover_data=["price", "bedrooms", "bathrooms", "grade", "zipcode"],
+                         color_continuous_scale="Viridis",
+                         title="King County sales — hover for details (color = price)",
+                         map_style="open-street-map", zoom=8,
+                         center={"lat": 47.56, "lon": -122.21})
+    out = os.path.join(FIGDIR, "price_map.html")
+    fig.write_html(out, include_plotlyjs="cdn")
+    print(f"Interactive map: {out} ({len(s)} points)")
+    return True
+
+
+def renovation_premium(df):
+    """Investor question: do renovations pay? Match within grade bands."""
+    d = df[df["price_per_sqft"].notna()].copy()
+    d["grade_band"] = pd.cut(d["grade"], [0, 6, 8, 13],
+                             labels=["low<=6", "mid 7-8", "high 9+"])
+    if d["renovated"].sum() == 0:
+        print("Renovation premium skipped (no renovated sales in data).")
+        return None
+    g = d.groupby(["grade_band", "renovated"], observed=True)["price_per_sqft"].median().unstack()
+    g["premium_pct"] = (g[1] - g[0]) / g[0] * 100
+    print("Median $/sqft by grade band (0=original, 1=renovated):\n" + g.to_string())
+    overall = (d.loc[d["renovated"] == 1, "price_per_sqft"].median()
+               - d.loc[d["renovated"] == 0, "price_per_sqft"].median())
+    print(f"Overall renovated premium: ${overall:,.0f}/sqft median gap")
+    g[[0, 1]].plot(kind="bar")
+    _shot("renovation_premium.png", "Renovated vs original median $/sqft by grade",
+          "Grade band", "Median $/sqft")
+    return {"premium_per_sqft": float(overall),
+            "by_band": g["premium_pct"].to_dict()}
+
+
 def fred_overlay():
     """Optional long-run context. Looks for data/external/seattle_hpi.csv; skips if absent."""
     p = os.path.join(DATADIR, "external", "seattle_hpi.csv")
@@ -472,10 +513,17 @@ def fred_overlay():
         print("FRED overlay skipped (no data/external/seattle_hpi.csv). "
               "To add: download a Seattle monthly HPI CSV with columns date,value.")
         return False
-    h = pd.read_csv(p, parse_dates=["date"]).sort_values("date")
+    h = pd.read_csv(p)
+    date_col = "date" if "date" in h.columns else h.columns[0]
+    val_col = "value" if "value" in h.columns else h.columns[1]
+    h[date_col] = pd.to_datetime(h[date_col])
+    h = h.sort_values(date_col)
     plt.figure()
-    plt.plot(h["date"], h["value"])
-    plt.figtext(0.01, 0.01, "Source: FRED/FHFA Seattle HPI (external context, not model input).",
+    plt.plot(h[date_col], h[val_col])
+    plt.axvspan(pd.Timestamp("2014-05-01"), pd.Timestamp("2015-05-31"),
+                color="orange", alpha=0.25, label="King County study window")
+    plt.legend(fontsize=9)
+    plt.figtext(0.01, 0.01, "Source: FRED S&P/Case-Shiller Seattle HPI, monthly (external context, not model input).",
                 fontsize=8, color="gray")
     plt.title("Seattle house-price index, long run (external context)")
     plt.xlabel("Date")
@@ -497,15 +545,17 @@ def main():
     print("Corr with price:\n" + df[FEATURES + ["price"]].corr(numeric_only=True)["price"].sort_values(ascending=False).to_string())
     plot_all(df)
     metrics, _ = model(df)
+    reno = renovation_premium(df)
     tab3, fitted3 = model_phase3(df)
     quant = interpret_and_quantify(df, fitted3)
     fwd = time_aware_eval(df)
     scen = backtest_and_scenario(df)
     fred = fred_overlay()
+    imap = interactive_map(df)
     print(f"source={source} rows={len(df)} figures={sorted(os.listdir(FIGDIR))}")
-    return {"metrics": metrics, "phase3": tab3.to_dict("records"),
+    return {"metrics": metrics, "renovation": reno, "phase3": tab3.to_dict("records"),
             "quantile": quant, "forward": fwd.to_dict("records"),
-            "scenario": scen, "fred": fred}
+            "scenario": scen, "fred": fred, "imap": imap}
 
 
 if __name__ == "__main__":
