@@ -31,24 +31,24 @@ Figures land in `figures/`.
 ## What is in here
 - `house_price_analysis.ipynb` — narrative notebook (Colab-ready).
 - `analysis.py` — same pipeline as a script for reproducibility.
-- `figures/` — price distribution, price vs sqft, price by grade, trend, geo scatter, predicted-vs-actual, feature importance.
+- `figures/` — 11 real-run charts (distribution, drivers, trend, geo, fit, importance, scenario, renovation, FRED context).
 - `requirements.txt`, `data/` (ignored raw CSVs go here).
 
-## Key findings (synthetic fallback run; real data shows same pattern)
-- Investor lens: mid-grade 3–4 bedroom flips price reliably from the model; luxury/waterfront need manual appraisal buffers.
-- Model table: Lasso RMSE $89,077 (8/21 features kept) ≈ LR raw $89,160; HistGB $92,588; RF $94,454. Log-target trails on linear fallback data by construction — the honest comparison stays in the table.
-- Forward time splits hold up (train past → test future), so the model generalizes to future listings.
+## Key findings (real run: 21,613 → 21,421 sales after cleaning)
+- Investor lens: renovate to flip in mid-grade (7–8, +22.5% $/sqft) and high-grade (9+, +50.5%) homes; low grades show −9.5% — flips don't pay there. Luxury and waterfront listings get manual appraisal with quantile bands.
+- Model table (shuffled 80/20, RMSE in dollars): HistGradientBoosting $121,583 R² 0.896 (best) · Lasso $176,051 R² 0.783 · RandomForest $194,322 R² 0.735 · LR-log $214,713 R² 0.677 · LinearRegression $217,745 R² 0.668.
+- Forward time splits hold up (train past → test future, RF R² 0.717 / 0.713 / 0.713), so the model generalizes to future listings.
 - Quantile 80% bands cover 0.79 of test homes — quote the band, not the point.
-- Market scenario (damped Holt-Winters, backtested vs naive on last 3 months): 6-month projection with ~80% bands; months 7–12 are stretch. No multi-year forecast from 12 points.
-- Limitation: 2014–2015 Seattle only; location lifts need the real-data rerun; no interest-rate features; do not use for 2026 pricing.
+- Market scenario (damped Holt-Winters, backtested vs naive on last 3 months): 6-month end $457,240 ±$18,544; months 7–12 are stretch. SCENARIO, not a forecast — no multi-year prediction from 12 points.
+- Limitation: 2014–2015 Seattle only (median $450,000, $244.54/sqft); no interest-rate features; do not use for 2026 pricing.
 
 ## Report and screenshots
 - Full write-up: `report/REPORT.md` (investor lens, KPI scorecard, findings, decisions, limits).
-- 16 hero screenshots in `report/figures/` + standalone `figures/price_map.html` (interactive hover map) + `scenario_projection.csv` (12-month scenario with bands).
-- All 18 pipeline figures in `figures/`, plus FRED context from `data/external/seattle_hpi.csv` (public, committed).
+- 11 real-run screenshots in `report/figures/` (mirrored in `figures/`), plus FRED context from `data/external/seattle_hpi.csv` (public, committed).
+- Extended charts (volume, residuals, error bands, learning curve, quantile bands, log-dist, interactive map) and `scenario_projection.csv` regenerate on Run All.
 
 <!-- Portfolio blurb (hidden from render; copy-paste source for your website)
-> King County House Prices — I analyzed 21,600 Seattle-area home sales (2014–2015) to find what drives price and how far the data can project. Living area and grade dominate; a LinearRegression baseline (R2 0.89) holds up under forward time splits, while luxury and waterfront listings need manual appraisal buffers. A damped Holt-Winters scenario projects the monthly median 6 months out with uncertainty bands — honestly labeled as scenario, not forecast, since 12 months cannot support multi-year claims. Built with pandas, scikit-learn, statsmodels, and matplotlib; reproducible in one Colab Run All via Kaggle. [notebook] [report] [3 hero charts]
+> King County House Prices — I analyzed 21,421 Seattle-area home sales (2014–2015) to find what drives price and how far the data can project. A HistGradientBoosting model (R² 0.90) holds up under forward time splits (R² ≈ 0.71); renovations pay in mid-grade (+22%) and high-grade (+51%) homes but not low-grade (−9%), and every appraisal ships with a quantile band (80% coverage 0.79). A damped Holt-Winters scenario projects the monthly median 6 months out — honestly labeled as scenario, not forecast, since 12 months cannot support multi-year claims. Median sale: $450,000. Built with pandas, scikit-learn, statsmodels, and matplotlib; reproducible in one Colab Run All via Kaggle. [notebook] [report] [hero charts]
 -->
 
 ## Skills shown
